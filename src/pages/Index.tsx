@@ -9,15 +9,27 @@ import { MapView } from "@/components/MapView";
 import { ReportsPanel } from "@/components/ReportsPanel";
 import { SummaryBar } from "@/components/SummaryBar";
 
+interface Detection {
+  id: string;
+  fileName: string;
+  imageUrl: string;
+  vehicleType: string;
+  confidence: number;
+  timestamp: string;
+  count: number;
+  detectionMethod: 'roboflow' | 'transformers';
+}
+
 const Index = () => {
   const [activeTab, setActiveTab] = useState("live");
+  const [detections, setDetections] = useState<Detection[]>([]);
 
   const renderContent = () => {
     switch (activeTab) {
       case "live":
         return <LiveView />;
       case "upload":
-        return <UploadPanel />;
+        return <UploadPanel onDetectionsUpdate={setDetections} />;
       case "analytics":
         return <AnalyticsCharts />;
       case "map":
@@ -57,7 +69,7 @@ const Index = () => {
 
           {/* Sidebar - Violations List */}
           <div className="lg:col-span-1">
-            <ViolationsList />
+            <ViolationsList detections={detections} />
           </div>
         </div>
       </main>

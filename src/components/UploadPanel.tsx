@@ -3,8 +3,10 @@ import { Upload, Image, Video, Wifi, X, FileVideo, FileImage, CheckCircle, Alert
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { analyzeImages } from "@/lib/roboflowService";
+import { analyzeImagesWithTransformers } from "@/lib/transformersService";
 
 type UploadType = "image" | "video" | "stream";
+type DetectionMethod = "roboflow" | "transformers";
 
 interface AnalysisResultData {
   file: string;
@@ -14,9 +16,25 @@ interface AnalysisResultData {
   fileUrl?: string;
 }
 
-export const UploadPanel = () => {
+interface Detection {
+  id: string;
+  fileName: string;
+  imageUrl: string;
+  vehicleType: string;
+  confidence: number;
+  timestamp: string;
+  count: number;
+  detectionMethod: 'roboflow' | 'transformers';
+}
+
+interface UploadPanelProps {
+  onDetectionsUpdate?: (detections: Detection[]) => void;
+}
+
+export const UploadPanel = ({ onDetectionsUpdate }: UploadPanelProps = {}) => {
   const [dragOver, setDragOver] = useState(false);
   const [selectedType, setSelectedType] = useState<UploadType>("image");
+  const [detectionMethod, setDetectionMethod] = useState<DetectionMethod>("transformers"); // Default to Transformers
   const [files, setFiles] = useState<File[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResults, setAnalysisResults] = useState<AnalysisResultData[]>([]);
@@ -300,9 +318,14 @@ export const UploadPanel = () => {
     setIsAnalyzing(true);
     
     try {
+      const methodName = detectionMethod === "roboflow" ? "Roboflow" : "Transformers";
+      const loadingMessage = detectionMethod === "transformers" 
+        ? "Processing your media... (First-time use may take longer to download the model)"
+        : "Processing your media for violations...";
+      
       toast({
         title: "Analysis started",
-        description: "Processing your media for violations...",
+        description: loadingMessage,
       });
 
       // Filter only image files for analysis
@@ -318,9 +341,12 @@ export const UploadPanel = () => {
         return;
       }
 
-      const results = await analyzeImages(imageFiles);
+      const results = detectionMethod === "roboflow" 
+        ? await analyzeImages(imageFiles)
+        : await analyzeImagesWithTransformers(imageFiles);
       
       console.log('=== RAW ANALYSIS RESULTS ===');
+      console.log(`Detection method: ${detectionMethod}`);
       console.log('Results from API:', JSON.stringify(results, null, 2));
       
       // Create file URLs for displaying images
@@ -341,6 +367,43 @@ export const UploadPanel = () => {
       // Check if all analyses were successful
       const successfulAnalyses = results.filter(result => result.success);
       const failedAnalyses = results.filter(result => !result.success);
+      
+      // Convert successful results to detections and send to parent
+      if (onDetectionsUpdate && successfulAnalyses.length > 0) {
+        const detections: Detection[] = resultsWithUrls
+          .filter(result => result.success && result.data)
+          .map((result, index) => {
+            const outputs = result.data.outputs || result.data;
+            const count = outputs.count_objects || result.data.count_objects || 0;
+            
+            // Extract vehicle types from predictions
+            let vehicleTypes: string[] = [];
+            const predictions = outputs.predictions?.predictions || outputs.predictions || [];
+            if (Array.isArray(predictions) && predictions.length > 0) {
+              vehicleTypes = [...new Set(predictions.map((p: any) => p.class || 'vehicle'))];
+            }
+            
+            // Get highest confidence
+            const confidences = Array.isArray(predictions) 
+              ? predictions.map((p: any) => p.confidence || 0)
+              : [];
+            const maxConfidence = confidences.length > 0 ? Math.max(...confidences) : 0.9;
+            
+            return {
+              id: `DET-${Date.now()}-${index}`,
+              fileName: result.file,
+              imageUrl: result.fileUrl || '',
+              vehicleType: vehicleTypes.join(', ') || 'vehicle',
+              confidence: maxConfidence,
+              timestamp: new Date().toLocaleTimeString(),
+              count: count,
+              detectionMethod: detectionMethod
+            };
+          });
+        
+        console.log('Sending detections to parent:', detections);
+        onDetectionsUpdate(detections);
+      }
       
       if (successfulAnalyses.length > 0) {
         toast({
@@ -423,6 +486,38 @@ export const UploadPanel = () => {
               {type.label}
             </button>
           ))}
+        </div>
+      </div>
+
+      {/* Detection Method Selector */}
+      <div className="mb-6 flex items-center justify-between p-4 bg-secondary/30 rounded-lg border border-border/50">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">Detection Method</h3>
+          <p className="text-xs text-muted-foreground mt-1">
+            Choose between cloud-based or local processing
+          </p>
+        </div>
+        <div className="flex gap-2 bg-background/50 rounded-lg p-1">
+          <button
+            onClick={() => setDetectionMethod("roboflow")}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+              detectionMethod === "roboflow"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            🌐 Roboflow (Cloud)
+          </button>
+          <button
+            onClick={() => setDetectionMethod("transformers")}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+              detectionMethod === "transformers"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            🤖 Transformers (Local)
+          </button>
         </div>
       </div>
 

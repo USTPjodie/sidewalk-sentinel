@@ -13,6 +13,21 @@ interface Violation {
   blockage: number;
 }
 
+interface Detection {
+  id: string;
+  fileName: string;
+  imageUrl: string;
+  vehicleType: string;
+  confidence: number;
+  timestamp: string;
+  count: number;
+  detectionMethod: 'roboflow' | 'transformers';
+}
+
+interface ViolationsListProps {
+  detections?: Detection[];
+}
+
 const mockViolations: Violation[] = [
   {
     id: "V-001",
@@ -83,26 +98,113 @@ const statusConfig = {
   resolved: { label: "Resolved", color: "text-success", bg: "bg-success/10" },
 };
 
-export const ViolationsList = () => {
+export const ViolationsList = ({ detections = [] }: ViolationsListProps) => {
+  // Show real detections if available, otherwise show mock data
+  const hasRealDetections = detections.length > 0;
+  const displayItems = hasRealDetections ? detections : mockViolations;
+  
   return (
     <div className="glass-card overflow-hidden animate-slide-up">
       <div className="flex items-center justify-between p-6 border-b border-border/50">
         <div>
           <h2 className="text-xl font-semibold text-foreground">Recent Violations</h2>
           <p className="text-sm text-muted-foreground mt-1">
-            Live feed of detected parking violations
+            {hasRealDetections 
+              ? `${detections.length} detection(s) from analysis`
+              : 'Live feed of detected parking violations'
+            }
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="pulse-dot mr-2">
-            <span className="sr-only">Live</span>
-          </div>
-          <span className="text-sm text-success font-medium">Live</span>
+          {hasRealDetections ? (
+            <span className="text-sm text-primary font-medium">Analysis Results</span>
+          ) : (
+            <>
+              <div className="pulse-dot mr-2">
+                <span className="sr-only">Live</span>
+              </div>
+              <span className="text-sm text-success font-medium">Live</span>
+            </>
+          )}
         </div>
       </div>
 
       <div className="divide-y divide-border/50">
-        {mockViolations.map((violation, index) => (
+        {hasRealDetections ? (
+          // Render real detections
+          detections.map((detection, index) => (
+            <div
+              key={detection.id}
+              className="p-4 hover:bg-secondary/30 transition-colors animate-fade-in"
+              style={{ animationDelay: `${index * 50}ms` }}
+            >
+              <div className="flex items-start gap-4">
+                {/* Real image thumbnail */}
+                <div className="w-20 h-14 rounded-lg bg-secondary/50 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                  <img 
+                    src={detection.imageUrl} 
+                    alt={detection.fileName}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {detection.id}
+                        </span>
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                          {detection.detectionMethod === 'roboflow' ? '🌐 Roboflow' : '🤖 Transformers'}
+                        </span>
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-destructive/10 text-destructive">
+                          Detected
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-4 text-sm">
+                        <span className="flex items-center gap-1.5 text-foreground">
+                          <MapPin className="w-3.5 h-3.5 text-muted-foreground" />
+                          {detection.fileName}
+                        </span>
+                        <span className="flex items-center gap-1.5 text-muted-foreground">
+                          <Clock className="w-3.5 h-3.5" />
+                          {detection.timestamp}
+                        </span>
+                      </div>
+                    </div>
+
+                    <Button variant="ghost" size="icon" className="flex-shrink-0">
+                      <MoreVertical className="w-4 h-4" />
+                    </Button>
+                  </div>
+
+                  {/* Stats */}
+                  <div className="flex items-center gap-6 mt-3 text-xs">
+                    <div className="flex items-center gap-1.5">
+                      <Car className="w-3.5 h-3.5 text-muted-foreground" />
+                      <span className="text-muted-foreground">Vehicles:</span>
+                      <span className="text-foreground font-medium">{detection.count}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Eye className="w-3.5 h-3.5 text-muted-foreground" />
+                      <span className="text-muted-foreground">Type:</span>
+                      <span className="text-foreground font-medium">{detection.vehicleType}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 text-muted-foreground" />
+                      <span className="text-muted-foreground">Confidence:</span>
+                      <span className="text-primary font-medium">{Math.round(detection.confidence * 100)}%</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))
+        ) : (
+          // Render mock violations
+          mockViolations.map((violation, index) => (
           <div
             key={violation.id}
             className="p-4 hover:bg-secondary/30 transition-colors animate-fade-in"
@@ -174,7 +276,8 @@ export const ViolationsList = () => {
               </div>
             </div>
           </div>
-        ))}
+        ))
+        )}
       </div>
 
       <div className="p-4 border-t border-border/50 text-center">
