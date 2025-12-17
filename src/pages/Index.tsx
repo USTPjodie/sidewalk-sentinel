@@ -12,24 +12,36 @@ import { SummaryBar } from "@/components/SummaryBar";
 interface Detection {
   id: string;
   fileName: string;
-  imageUrl: string;
+  imageUrl: string; // Full image URL
+  croppedImageUrl?: string; // Cropped vehicle image URL
   vehicleType: string;
   confidence: number;
   timestamp: string;
   count: number;
   detectionMethod: 'roboflow' | 'transformers';
+  boundingBox?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
 }
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState("live");
   const [detections, setDetections] = useState<Detection[]>([]);
 
+  // Handler to append new detections instead of replacing
+  const handleDetectionsUpdate = (newDetections: Detection[]) => {
+    setDetections(prev => [...newDetections, ...prev]); // Add new detections to the beginning
+  };
+
   const renderContent = () => {
     switch (activeTab) {
       case "live":
         return <LiveView />;
       case "upload":
-        return <UploadPanel onDetectionsUpdate={setDetections} />;
+        return <UploadPanel onDetectionsUpdate={handleDetectionsUpdate} />;
       case "analytics":
         return <AnalyticsCharts />;
       case "map":

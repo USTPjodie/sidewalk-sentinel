@@ -19,12 +19,19 @@ interface AnalysisResultData {
 interface Detection {
   id: string;
   fileName: string;
-  imageUrl: string;
+  imageUrl: string; // Full image URL
+  croppedImageUrl?: string; // Cropped vehicle image URL
   vehicleType: string;
   confidence: number;
   timestamp: string;
   count: number;
   detectionMethod: 'roboflow' | 'transformers';
+  boundingBox?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
 }
 
 interface UploadPanelProps {
@@ -75,6 +82,57 @@ export const UploadPanel = ({ onDetectionsUpdate }: UploadPanelProps = {}) => {
 
   const removeFile = (index: number) => {
     setFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Helper function to crop vehicle from image
+  const cropVehicleImage = async (
+    imageFile: File,
+    boundingBox: { x: number; y: number; width: number; height: number }
+  ): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new window.Image();
+      const url = URL.createObjectURL(imageFile);
+      
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        
+        // Create canvas for cropping
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Could not get canvas context'));
+          return;
+        }
+        
+        // Calculate crop coordinates (bounding box is center-based)
+        const cropX = Math.max(0, boundingBox.x - boundingBox.width / 2);
+        const cropY = Math.max(0, boundingBox.y - boundingBox.height / 2);
+        const cropWidth = Math.min(boundingBox.width, img.width - cropX);
+        const cropHeight = Math.min(boundingBox.height, img.height - cropY);
+        
+        // Set canvas size to cropped dimensions
+        canvas.width = cropWidth;
+        canvas.height = cropHeight;
+        
+        // Draw cropped portion
+        ctx.drawImage(
+          img,
+          cropX, cropY, cropWidth, cropHeight,  // Source rectangle
+          0, 0, cropWidth, cropHeight           // Destination rectangle
+        );
+        
+        // Convert to data URL
+        const croppedDataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        resolve(croppedDataUrl);
+      };
+      
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('Failed to load image for cropping'));
+      };
+      
+      img.src = url;
+    });
   };
 
   // Draw bounding boxes on canvas
@@ -370,39 +428,78 @@ export const UploadPanel = ({ onDetectionsUpdate }: UploadPanelProps = {}) => {
       
       // Convert successful results to detections and send to parent
       if (onDetectionsUpdate && successfulAnalyses.length > 0) {
-        const detections: Detection[] = resultsWithUrls
-          .filter(result => result.success && result.data)
-          .map((result, index) => {
-            const outputs = result.data.outputs || result.data;
-            const count = outputs.count_objects || result.data.count_objects || 0;
-            
-            // Extract vehicle types from predictions
-            let vehicleTypes: string[] = [];
-            const predictions = outputs.predictions?.predictions || outputs.predictions || [];
-            if (Array.isArray(predictions) && predictions.length > 0) {
-              vehicleTypes = [...new Set(predictions.map((p: any) => p.class || 'vehicle'))];
-            }
-            
-            // Get highest confidence
-            const confidences = Array.isArray(predictions) 
-              ? predictions.map((p: any) => p.confidence || 0)
-              : [];
-            const maxConfidence = confidences.length > 0 ? Math.max(...confidences) : 0.9;
-            
-            return {
-              id: `DET-${Date.now()}-${index}`,
-              fileName: result.file,
-              imageUrl: result.fileUrl || '',
-              vehicleType: vehicleTypes.join(', ') || 'vehicle',
-              confidence: maxConfidence,
-              timestamp: new Date().toLocaleTimeString(),
-              count: count,
-              detectionMethod: detectionMethod
-            };
-          });
+        const allDetections: Detection[] = [];
         
-        console.log('Sending detections to parent:', detections);
-        onDetectionsUpdate(detections);
+        // Process each result
+        for (let resultIndex = 0; resultIndex < resultsWithUrls.length; resultIndex++) {
+          const result = resultsWithUrls[resultIndex];
+          
+          if (!result.success || !result.data) continue;
+          
+          const outputs = result.data.outputs || result.data;
+          const predictions = outputs.predictions?.predictions || outputs.predictions || [];
+          
+          // Skip if no predictions
+          if (!Array.isArray(predictions) || predictions.length === 0) continue;
+          
+          const imageFile = imageFiles[resultIndex];
+          const timestamp = new Date().toLocaleTimeString();
+          
+          // Create a detection for EACH vehicle
+          for (let predIndex = 0; predIndex < predictions.length; predIndex++) {
+            const pred = predictions[predIndex];
+            
+            try {
+              // Crop the vehicle from the image
+              const croppedUrl = await cropVehicleImage(imageFile, {
+                x: pred.x,
+                y: pred.y,
+                width: pred.width,
+                height: pred.height
+              });
+              
+              allDetections.push({
+                id: `DET-${Date.now()}-${resultIndex}-${predIndex}`,
+                fileName: result.file,
+                imageUrl: result.fileUrl || '',
+                croppedImageUrl: croppedUrl,
+                vehicleType: pred.class || 'vehicle',
+                confidence: pred.confidence || 0,
+                timestamp: timestamp,
+                count: 1, // Each detection is 1 vehicle
+                detectionMethod: detectionMethod,
+                boundingBox: {
+                  x: pred.x,
+                  y: pred.y,
+                  width: pred.width,
+                  height: pred.height
+                }
+              });
+            } catch (error) {
+              console.error('Failed to crop vehicle:', error);
+              // Add detection without cropped image as fallback
+              allDetections.push({
+                id: `DET-${Date.now()}-${resultIndex}-${predIndex}`,
+                fileName: result.file,
+                imageUrl: result.fileUrl || '',
+                vehicleType: pred.class || 'vehicle',
+                confidence: pred.confidence || 0,
+                timestamp: timestamp,
+                count: 1,
+                detectionMethod: detectionMethod,
+                boundingBox: {
+                  x: pred.x,
+                  y: pred.y,
+                  width: pred.width,
+                  height: pred.height
+                }
+              });
+            }
+          }
+        }
+        
+        console.log('Sending individual vehicle detections to parent:', allDetections);
+        onDetectionsUpdate(allDetections);
       }
       
       if (successfulAnalyses.length > 0) {

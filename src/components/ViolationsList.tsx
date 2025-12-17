@@ -16,12 +16,19 @@ interface Violation {
 interface Detection {
   id: string;
   fileName: string;
-  imageUrl: string;
+  imageUrl: string; // Full image URL
+  croppedImageUrl?: string; // Cropped vehicle image URL
   vehicleType: string;
   confidence: number;
   timestamp: string;
   count: number;
   detectionMethod: 'roboflow' | 'transformers';
+  boundingBox?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
 }
 
 interface ViolationsListProps {
@@ -139,13 +146,21 @@ export const ViolationsList = ({ detections = [] }: ViolationsListProps) => {
               style={{ animationDelay: `${index * 50}ms` }}
             >
               <div className="flex items-start gap-4">
-                {/* Real image thumbnail */}
+                {/* Real image thumbnail - show cropped vehicle if available */}
                 <div className="w-20 h-14 rounded-lg bg-secondary/50 flex items-center justify-center flex-shrink-0 overflow-hidden">
-                  <img 
-                    src={detection.imageUrl} 
-                    alt={detection.fileName}
-                    className="w-full h-full object-cover"
-                  />
+                  {detection.croppedImageUrl ? (
+                    <img 
+                      src={detection.croppedImageUrl} 
+                      alt={`${detection.vehicleType} detection`}
+                      className="w-full h-full object-contain"
+                    />
+                  ) : (
+                    <img 
+                      src={detection.imageUrl} 
+                      alt={detection.fileName}
+                      className="w-full h-full object-cover"
+                    />
+                  )}
                 </div>
 
                 {/* Content */}
@@ -184,19 +199,23 @@ export const ViolationsList = ({ detections = [] }: ViolationsListProps) => {
                   <div className="flex items-center gap-6 mt-3 text-xs">
                     <div className="flex items-center gap-1.5">
                       <Car className="w-3.5 h-3.5 text-muted-foreground" />
-                      <span className="text-muted-foreground">Vehicles:</span>
-                      <span className="text-foreground font-medium">{detection.count}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <Eye className="w-3.5 h-3.5 text-muted-foreground" />
                       <span className="text-muted-foreground">Type:</span>
-                      <span className="text-foreground font-medium">{detection.vehicleType}</span>
+                      <span className="text-foreground font-medium capitalize">{detection.vehicleType}</span>
                     </div>
                     <div className="flex items-center gap-1.5">
                       <AlertTriangle className="w-3.5 h-3.5 text-muted-foreground" />
                       <span className="text-muted-foreground">Confidence:</span>
                       <span className="text-primary font-medium">{Math.round(detection.confidence * 100)}%</span>
                     </div>
+                    {detection.boundingBox && (
+                      <div className="flex items-center gap-1.5">
+                        <Eye className="w-3.5 h-3.5 text-muted-foreground" />
+                        <span className="text-muted-foreground">Size:</span>
+                        <span className="text-foreground font-medium text-[10px]">
+                          {Math.round(detection.boundingBox.width)}×{Math.round(detection.boundingBox.height)}px
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
